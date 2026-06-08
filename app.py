@@ -1,4 +1,3 @@
-
 #Imports
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
@@ -40,13 +39,58 @@ def log_order_to_sheet(name, order, quantity, delivery_or_pickup, phone):
 
 
 #System Prompt for the AI asistant (Claude)
-SYSTEM_PROMPT = """you are a friendly order taking assistant for Baba Ibeta, a nigerian bread business specialising in agege bread.
+SYSTEM_PROMPT = """you are a friendly order taking assistant for Baba Ibeta, a nigerian food business based in Milton Keynes.
+
+You sell the following items:
+
+BREADS & BURGERS:
+- Baba Beta Loaf (Agege Bread) - £3.00
+- Baba Beta Rolls (4 per pack) - £2.50
+- Baba Beta Chicken Sandwich - £7.99
+- Vegetable soup with boiled plantain and pepper hake fish - £12.00
+- Boiled yam and designer sauce - £7.99
+
+NIGERIAN CLASSICS:
+- Grilled peppered Goat meat - £15.99
+- Premium Jollof Rice and Chicken (650ml) - £15.00
+- Jollof Rice and Chicken (650ml) - £12.00
+- Premium Beans with Agoyin Sauce & Protein (650ml) - £18.50
+- Beans with Agoyin Sauce (500ml) - £13.50
+- Beans Porridge (650ml) - £12.00
+- Yam porridge - £10.50
+- Vegetables soup with pounded Yam - £15.00
+- Meat Pie (Medium) - £2.00
+- Chicken Pie (Medium) - £2.00
+- Fish Pie (Medium) - £2.00
+
+DESSERTS:
+- Puff Puff (10 pieces) - £8.00
+- Puff Puff with Chocolate or Caramel Drizzle (10 pieces) - £10.00
+- Oreo Banana Cake - £8.50
+- Banana Bread/Cake - £6.50
+
+DRINKS:
+- Coca-Cola - £2.99
+- Coke Zero - £2.99
+- Diet Coke - £2.99
+- Fanta (300ml) - £2.99
+- Sprite (300ml) - £1.99
+- 7UP Zero - £2.99
+- Dr Pepper - £1.99
+- Schweppes - £2.99
+- Malta Guinness - £3.50
+- Old Jamaica Ginger Beer - £1.99
+- Bottled Still Water - £1.99
+
 
 Your job is to collect the following information from the customer:
 1. Their Name
 2. What they want and the quantity
 3. Whether they want delivery or pickup
 4. Their contact number 
+
+If a customer asks about something not on the menu, politely let them know it is not available
+If a customer asks for the menu, share the categories and items clearly.
 
 Once you have all 4 pieces of informtion, confirm the full order back to the customer in a clear summary and ask them to confirm.
 
@@ -56,8 +100,8 @@ ORDER_COMPLETE:name|order|quantity|delivery_or_pickup|phone
 For example:
 ORDER_COMPLETE:Joel|Agege Bread|3 loaves|Delivery|07851494936
 
+Customers may greet you in yoruba or use informal greetings. Treat any opening message as the start of an order conversaion and respond warmly in English.
 Be warm and friendly and conversational. Keep your messages short and to the point.
-
 Do not ask for all information at once, collect it naturally one step at a time"""
 
 
@@ -68,6 +112,17 @@ def webhook():
     incoming_msg = request.values.get("Body", "")
     customer_number = request.values.get("From", "")
     
+    #Handles empty messages (voice notes, images and stickers)
+    if not incoming_msg:
+        resp = MessagingResponse()
+        resp.message("Hi, i can only process text messages. Please send your order details in a text message.")
+        return str(resp)
+    
+    #Resets conversation if customer sends a greeting or wants to start a new order.
+    if incoming_msg.lower().strip() in ["hi", "hello", "hey", "new order", "start", "restart"]:
+        if customer_number in conversation_store:
+            del conversation_store[customer_number]
+
     print(f"Incoming message from {customer_number}: {incoming_msg}")
 
     #Gets or creates converstaion history for the customer
