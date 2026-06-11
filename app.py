@@ -23,7 +23,7 @@ client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 conversation_store = {}
 
 #Function to connect to google sheets and log order details
-def log_order_to_sheet(name, order, quantity, delivery_or_pickup, phone):
+def log_order_to_sheet(name, order, quantity, delivery_or_pickup, address, phone):
     scopes = ['https://www.googleapis.com/auth/spreadsheets']
     creds = Credentials.from_service_account_file('credentials.json', scopes=scopes)
     client = gspread.authorize(creds)
@@ -33,10 +33,42 @@ def log_order_to_sheet(name, order, quantity, delivery_or_pickup, phone):
     from datetime import datetime
     timestamp = datetime.now().strftime("%d/%m/%Y %H:%M")
 
-    sheet.append_row([timestamp, name, order, quantity, delivery_or_pickup, phone, "Pending"])
+    sheet.append_row([timestamp, name, order, quantity, delivery_or_pickup, address, phone, "Pending"])
     print(f"Order logged to sheet for {name}")
 
+    send_email_notification(name, order, quantity, delivery_or_pickup, address, phone)
 
+#Function to send email when order is recieved.
+def send_email_notification(name, order, quantity, delivery_or_pickup, address, phone):
+    import smtplib
+    from email.mime.text import MIMEText
+    from datetime import datetime
+
+    timestamp = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    email_body = f"""
+New Order Received - Baba Ibeta
+
+Customer Name: {name}
+Order: {quantity} x {order}
+Delivery/Pickup: {delivery_or_pickup}
+Address: {address}
+Phone: {phone}
+Timestamp: {timestamp}
+
+Please check the google sheet for full details
+"""
+    
+    msg = MIMEText(email_body)
+    msg['Subject'] = f"New Order from - {name}"
+    msg['From'] = os.getenv("EMAIL_SENDER")
+    msg['To'] = os.getenv("EMAIL_RECEIVER")
+
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        server.login(os.getenv("EMAIL_SENDER"), os.getenv("EMAIL_PASSWORD"))
+        server.sendmail(os.getenv("EMAIL_SENDER"), os.getenv("EMAIL_RECEIVER"), msg.as_string())
+
+    print(f"Email notification sent for order from {name}")
 
 #System Prompt for the AI asistant (Claude)
 SYSTEM_PROMPT = """you are a friendly order taking assistant for Baba Ibeta, a nigerian food business based in Milton Keynes.
@@ -87,18 +119,28 @@ Your job is to collect the following information from the customer:
 1. Their Name
 2. What they want and the quantity
 3. Whether they want delivery or pickup
-4. Their contact number 
+4. Their delivery address (only if they want delivery)
+5. Their Contact number
 
 If a customer asks about something not on the menu, politely let them know it is not available
 If a customer asks for the menu, share the categories and items clearly.
 
-Once you have all 4 pieces of informtion, confirm the full order back to the customer in a clear summary and ask them to confirm.
+Business INFO:
+- Opening Hours: Everyday 9am to 9pm
+- Delivery Area: Milton Keynes only. We do not deliver outside of Milton Keynes.
+- Payment is on delivery or pickup. We do not take payment in advance.
+- We are based at 63 Caxton Court, Wymbush, Milton Keynes, MK8 8DD.
+
+If a customer asks about delivery outside of miltion keynes, politely let them know we only deliver within Milton Keynes.
+If a customer messages outside of opening hours let them know the hours and that they can still place an order for when we open.
+Once you have all the necessary pieces of information, confirm the full order back to the customer in a clear summary and ask them to confirm.
 
 When the customer confirms their order, end your message with this exact tag on a new line:
-ORDER_COMPLETE:name|order|quantity|delivery_or_pickup|phone
+ORDER_COMPLETE:name|order|quantity|delivery_or_pickup|address|phone
 
 For example:
-ORDER_COMPLETE:Joel|Agege Bread|3 loaves|Delivery|07851494936
+ORDER_COMPLETE:Joel|Agege Bread|3 loaves|Delivery|12 Example Street Bedford|07851494936
+If the customer chose pickup, put 'N/A' for the address.
 
 Customers may greet you in yoruba or use informal greetings. Treat any opening message as the start of an order conversaion and respond warmly in English.
 Be warm and friendly and conversational. Keep your messages short and to the point.
@@ -151,8 +193,8 @@ def webhook():
         try:
             order_data = claude_reply.split("ORDER_COMPLETE:")[1].strip().split("|")
             
-            if len(order_data) == 5:
-                log_order_to_sheet(order_data[0], order_data[1], order_data[2], order_data[3], order_data[4])
+            if len(order_data) == 6:
+                log_order_to_sheet(order_data[0], order_data[1], order_data[2], order_data[3], order_data[4], order_data[5])
             
             #remove the tag from the reply before sending to customer
             claude_reply = claude_reply.split("ORDER_COMPLETE:")[0].strip()
